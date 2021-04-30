@@ -1,0 +1,481 @@
+import java.time.ZoneOffset
+import java.time.ZonedDateTime
+import jenkins.model.*
+
+import java.time.format.DateTimeFormatter
+final String gitRepo = 'ssh://git-codecommit.eu-west-1.amazonaws.com/v1/repos/transactional-portal'
+final String gitRepoCredentialsId = ''
+final String registryName = '783026654359.dkr.ecr.eu-west-1.amazonaws.com'
+final String repoNameTportalApi = "$registryName/transactional-portal-api-nonprod"
+final String repoNameTportalWeb = "$registryName/transactional-portal-web-nonprod"
+final String repoNameTportalJobs = "$registryName/transactional-portal-jobs-nonprod"
+final String repoNameTportalBackoffice = "$registryName/transactional-portal-backoffice-nonprod"
+final String repoNameTportalimcalcJobs = "$registryName/imcalc-jobs-nonprod"
+final String repoNameTportalimcalcApi = "$registryName/imcalc-api-nonprod"
+final String rootPomFilePath= "pom.xml"
+final String apiServicePomFilePath= "transactional-portal-api/pom.xml"
+final String webServicePomFilePath= "transactional-portal-web/pom.xml"
+final String jobsServicePomFilePath= "transactional-portal-jobs/pom.xml"
+final String backofficeServicePomFilePath= "transactional-portal-backoffice/pom.xml"
+final String imcalcapiServicePomFilePath= "oaknorth-imcalc-api/pom.xml"
+final String imcalcjobsServicePomFilePath= "oaknorth-imcalc-jobs/pom.xml"
+final String testJenkinServerURL= "http://10.100.16.202:8080"
+final String testJenkinServerUser= "autotriggertest"
+final String testJenkinServerUserToken= "3027721c20d07ff2a00cd579526a26c5"
+final String preLiveJenkinServerURL= "https://jenkins-prelive.oaknorth-it.com"
+final String preLiveJenkinServerUser= "admin"
+final String preLiveJenkinServerUserToken= "1191108f1a2b88a6be9f0b6d3c686fb7e7"
+final String failedJobBuildReciepients= "8d51a775.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+final String passedJobBuildReciepients= "f06e5b08.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+final String failedJobReciepients= "b868971a.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+final String passedJobReciepients= "0f48caee.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+def version(pomPath)
+{
+    def matcher = readFile("${pomPath}") =~ /(?s)\s*<parent>.*<version>(.*)<\/version>.*<\/parent>\s*/
+    matcher ? matcher[0][1] : null
+    return matcher[0][1]
+}
+
+
+def cloneBuildCore(){
+    git branch: "${CORE_BRANCH_NAME}",
+    url: 'ssh://git-codecommit.eu-west-1.amazonaws.com/v1/repos/oaknorth-core'
+    sh 'mvn -f pom.xml clean install -DskipTests -Dmaven.wagon.http.ssl.insecure=true -Dmaven.wagon.http.ssl.allowall=true -Dmaven.wagon.http.ssl.ignore.validity.dates=true'
+}
+
+def buildDeployDockerImageOnRemote(tp_service_job_name,image_name,docker_file_path,remote_jenkin_job_url,service_pom_file_path,registry_name,jenkin_server_user,jenkin_server_user_token)
+{
+	transaction_portal_service_version = version("${service_pom_file_path}")
+	println "$tp_service_job_name, $image_name, $docker_file_path, $remote_jenkin_job_url,$service_pom_file_path,$registry_name"
+    docker.withRegistry("https://${registry_name}" )
+	{
+		sh 'rm  ~/.dockercfg || true'
+		sh 'rm ~/.docker/config.json || true'
+		sh 'eval $(aws ecr get-login --no-include-email --region eu-west-1)'
+		docker.build(image_name +":${transaction_portal_service_version}","-f ${docker_file_path} .").push("${transaction_portal_service_version}")
+
+		stage ("Triggering ${tp_service_job_name} Job on ${params.DEPLOY_ENV}")
+		{
+			def handle = triggerRemoteJob job: "${remote_jenkin_job_url}/job/${tp_service_job_name}", parameters: "transaction_portal_service_version=${transaction_portal_service_version}",auth: TokenAuth(apiToken: "${jenkin_server_user_token}", userName: "${jenkin_server_user}")
+
+            while( !handle.isFinished() )
+			{
+				echo 'Current Status: ' + handle.getBuildStatus().toString();
+				sleep 3
+            }
+            echo handle.getBuildStatus().toString();
+        }
+    }
+}
+
+
+def buildDeployDockerImageOnRemotePreLive(tp_service_job_name,image_name,docker_file_path,remote_jenkin_job_url,service_pom_file_path,registry_name,jenkin_server_user,jenkin_server_user_token){
+   
+			 transaction_portal_service_version = version("${service_pom_file_path}")
+	         println "$tp_service_job_name, $image_name, $docker_file_path, $remote_jenkin_job_url,$service_pom_file_path,$registry_name"             
+                  docker.withRegistry("https://${registry_name}" ) {
+			       sh 'rm  ~/.dockercfg || true'
+                   sh 'rm ~/.docker/config.json || true'
+			       sh 'eval $(aws ecr get-login --no-include-email --region eu-west-1)'
+                      docker.build(image_name +":${transaction_portal_service_version}","-f ${docker_file_path} .").push("${transaction_portal_service_version}")
+                
+             			 
+		    stage ("Triggering ${tp_service_job_name} Job on ${params.DEPLOY_ENV}") {
+            def handle = triggerRemoteJob job: "${remote_jenkin_job_url}/job/${tp_service_job_name}", parameters: "transaction_portal_service_version=${transaction_portal_service_version}",blockBuildUntilComplete: false,auth: TokenAuth(apiToken: "${jenkin_server_user_token}", userName: "${jenkin_server_user}")
+                 
+            
+            
+ 
+                }
+                 }
+               
+			   
+                }
+def buildDeployDockerImageOnLocal(tp_service_job_name,image_name,docker_file_path,service_pom_file_path,registry_name){
+   
+			 transaction_portal_service_version = version("${service_pom_file_path}")
+	                   
+                  docker.withRegistry("https://${registry_name}" ) {
+			       sh 'rm  ~/.dockercfg || true'
+                   sh 'rm ~/.docker/config.json || true'
+			       sh 'eval $(aws ecr get-login --no-include-email --region eu-west-1)'
+                      docker.build(image_name +":${transaction_portal_service_version}","-f ${docker_file_path} .").push("${transaction_portal_service_version}")
+                
+             			 
+		     stage ("Triggering ${tp_service_job_name} Job on ${params.DEPLOY_ENV}") {
+			
+			     build job: "${tp_service_job_name}", 
+                            parameters: [
+                                string(name: "transaction_portal_service_version", value: "${transaction_portal_service_version}")
+                                        ]
+                    }
+                 }
+          }
+
+
+def monitoringJobOnLocal(jobName)
+{
+	
+	build job: "${jobName}"
+}
+
+def monitoringJobOnRemote(job_name,jenkin_server_url,jenkin_server_user_token,jenkin_server_user)
+{
+	
+	def handle = triggerRemoteJob job: "${jenkin_server_url}/job/${job_name}",blockBuildUntilComplete: false , auth: TokenAuth(apiToken: "${jenkin_server_user_token}", userName: "${jenkin_server_user}")
+}
+
+def notifyBuild(String buildStatus = 'STARTED',failed_job_reciepients,passed_job_reciepients) {
+   
+   buildStatus =  buildStatus ?: 'SUCCESSFUL'
+   
+   def colorName = 'RED'
+   def colorCode = '#FF0000'
+   def subject = "${buildStatus}: Pipeline '${env.JOB_NAME} [${env.BUILD_NUMBER}]' for ${params.DEPLOY_ENV} environment"
+   def details = """<p> Check attached output for more details</p>"""
+    
+       
+   if (buildStatus == 'STARTED') {
+       echo "Build started"   
+   } 
+   
+   else if (buildStatus == 'SUCCESSFUL') {
+   
+	 emailext (
+     attachLog: true,
+     subject: subject,
+     body: details,
+     //recipientProviders: [[$class: 'DevelopersRecipientProvider']],
+     to: "${passed_job_reciepients}"
+     )
+   } 
+   
+   else {
+     emailext (
+     attachLog: true,
+     subject: subject,
+     body: details,
+     //recipientProviders: [[$class: 'DevelopersRecipientProvider']],
+	 to: "${failed_job_reciepients}"
+     )
+   }
+ 
+   }
+
+node{
+
+  try {
+
+    if ("${params.CORE_BRANCH_NAME}".isEmpty() != true){
+
+        stage('Git clone and Build Core'){        
+             echo "Clone and Build Core started"	  
+	         cloneBuildCore()
+         
+			 }
+
+		 }
+
+   else{
+		   echo " Core branch name not provided. Hence not building Core"
+	}		 
+
+
+	
+	stage('Git clone TPortal')
+	    {
+		    git branch: "${BRANCH_NAME}",
+		    url: 'ssh://git-codecommit.eu-west-1.amazonaws.com/v1/repos/transactional-portal'
+	    }
+
+	stage('Build T-Portal')
+	    {
+            sh 'mvn -f ' +rootPomFilePath +' clean install -Dmaven.wagon.http.ssl.insecure=true -Dmaven.wagon.http.ssl.allowall=true -Dmaven.wagon.http.ssl.ignore.validity.dates=true -DskipTests'
+	    }
+	    }
+
+	catch (e) {
+     
+        currentBuild.result = "FAILED"
+        throw e
+        }    
+    finally {
+		 
+		    stage('Sending Email')
+        {
+            notifyBuild(currentBuild.result,failedJobBuildReciepients,passedJobBuildReciepients)
+        }
+		}
+}
+
+
+node
+{
+	try {
+
+
+	    if  ("${params.DEPLOY_ENV}" == "Test")
+	    {
+			stage('Build and push docker images of transaction portal services')
+			{
+				script
+				{
+				if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_api'))
+				{
+					buildDeployDockerImageOnRemote("Deploy_Tportal_Api",repoNameTportalApi,"transactional-portal-api/src/main/docker/Dockerfile",testJenkinServerURL,apiServicePomFilePath,registryName,testJenkinServerUser,testJenkinServerUserToken)
+					stage('Triggering Monitor Job')
+					{
+						monitoringJobOnRemote("806_Monitor_Tportalapi",testJenkinServerURL,testJenkinServerUserToken,testJenkinServerUser)
+					}
+				}
+
+				else
+				{
+					echo "Not deploying transaction portal api"
+				}
+				if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_web'))
+				{
+					buildDeployDockerImageOnRemote("Deploy_Tportal_Web",repoNameTportalWeb,"transactional-portal-web/src/main/docker/Dockerfile",testJenkinServerURL,webServicePomFilePath,registryName,testJenkinServerUser,testJenkinServerUserToken)
+					stage('Triggering Monitor Job')
+					{
+						monitoringJobOnRemote("805_Monitor_Tportalweb",testJenkinServerURL,testJenkinServerUserToken,testJenkinServerUser)
+					}
+				}
+
+				else
+				{
+					echo "Not deploying transaction portal web"
+				}
+				if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_jobs'))
+				{
+					buildDeployDockerImageOnRemote("Deploy_Tportal_Jobs",repoNameTportalJobs,"transactional-portal-jobs/src/main/docker/Dockerfile",testJenkinServerURL,jobsServicePomFilePath,registryName,testJenkinServerUser,testJenkinServerUserToken)
+					stage('Triggering Monitor Job')
+					{
+						monitoringJobOnRemote("807_Monitor_Tportaljobs",testJenkinServerURL,testJenkinServerUserToken,testJenkinServerUser)
+					}
+				}
+
+				else
+				{
+					echo "Not deploying transaction portal jobs"
+				}
+				if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_backoffice'))
+				{
+					buildDeployDockerImageOnRemote("Deploy_Tportal_Backoffice",repoNameTportalBackoffice,"transactional-portal-backoffice/src/main/docker/Dockerfile",testJenkinServerURL,backofficeServicePomFilePath,registryName,testJenkinServerUser,testJenkinServerUserToken)
+					stage('Triggering Monitor Job')
+					{
+						monitoringJobOnRemote("808_Monitor_TportalBackOffice",testJenkinServerURL,testJenkinServerUserToken,testJenkinServerUser)
+					}
+				}
+				else
+				{
+					echo "Not deploying transaction portal backoffice"
+				}
+				if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_imcalc_api'))
+				{
+					buildDeployDockerImageOnRemote("Deploy_Tportal_Imcalc_api",repoNameTportalimcalcApi,"oaknorth-imcalc-api/src/main/docker/Dockerfile",testJenkinServerURL,imcalcapiServicePomFilePath,registryName,testJenkinServerUser,testJenkinServerUserToken)
+				}
+				else
+				{
+				    echo " Not deploying transaction portal imcalcapi "
+			    }
+				if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_imcalc_jobs'))
+				{
+					buildDeployDockerImageOnRemote("Deploy_Tportal_Imcalc_jobs",repoNameTportalimcalcJobs,"oaknorth-imcalc-jobs/src/main/docker/Dockerfile",testJenkinServerURL,imcalcjobsServicePomFilePath,registryName,testJenkinServerUser,testJenkinServerUserToken)
+				}
+				else
+				{
+				    echo " Not deploying transaction portal imcalcjobs "
+			    }
+			}
+
+		}
+	}
+
+	else if("${params.DEPLOY_ENV}" == "PreLive")
+	{
+		stage('Build and push docker images of transaction portal services ')
+		{
+
+			script
+			{
+           		if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_api'))
+				{
+					buildDeployDockerImageOnRemotePreLive("Deploy_Tportal_Api",repoNameTportalApi,"transactional-portal-api/src/main/docker/Dockerfile",preLiveJenkinServerURL,apiServicePomFilePath,registryName,preLiveJenkinServerUser,preLiveJenkinServerUserToken)
+					
+					sleep 20
+					
+					stage('Triggering Monitor Job')
+					{
+						monitoringJobOnRemote("806_Monitor_Tportalapi",preLiveJenkinServerURL,preLiveJenkinServerUserToken,preLiveJenkinServerUser)
+					}
+				}
+				else
+				{
+                    echo "Not deploying transaction portal api"
+                }
+
+				if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_web'))
+				{
+
+					buildDeployDockerImageOnRemotePreLive("Deploy_Tportal_Web",repoNameTportalWeb,"transactional-portal-web/src/main/docker/Dockerfile",preLiveJenkinServerURL,webServicePomFilePath,registryName,preLiveJenkinServerUser,preLiveJenkinServerUserToken)
+					
+					sleep 20
+					
+					stage('Triggering Monitor Job')
+					{
+						monitoringJobOnRemote("805_Monitor_Tportalweb",preLiveJenkinServerURL,preLiveJenkinServerUserToken,preLiveJenkinServerUser)
+					}
+				}
+				else
+				{
+                    echo "Not deploying transaction portal web"
+                }
+
+			    if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_jobs'))
+				{
+					buildDeployDockerImageOnRemotePreLive("Deploy_Tportal_Jobs",repoNameTportalJobs,"transactional-portal-jobs/src/main/docker/Dockerfile",preLiveJenkinServerURL,jobsServicePomFilePath,registryName,preLiveJenkinServerUser,preLiveJenkinServerUserToken)
+					
+					sleep 20
+					
+					stage('Triggering Monitor Job')
+					{
+						monitoringJobOnRemote("807_Monitor_Tportaljobs",preLiveJenkinServerURL,preLiveJenkinServerUserToken,preLiveJenkinServerUser)
+					}
+				}
+				else
+				{
+                    echo "Not deploying transaction portal jobs"
+
+                }
+	            if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_backoffice'))
+				{
+
+				    buildDeployDockerImageOnRemotePreLive("Deploy_Tportal_Backoffice",repoNameTportalBackoffice,"transactional-portal-backoffice/src/main/docker/Dockerfile",preLiveJenkinServerURL,backofficeServicePomFilePath,registryName,preLiveJenkinServerUser,preLiveJenkinServerUserToken)
+					
+					sleep 20
+					
+					stage('Triggering Monitor Job')
+					{
+						monitoringJobOnRemote("808_Monitor_TportalBackOffice",preLiveJenkinServerURL,preLiveJenkinServerUserToken,preLiveJenkinServerUser)
+					}
+			   }
+				else
+				{
+                    echo "Not deploying transaction portal backoffice"
+                }
+				if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_imcalc_api'))
+				{
+					buildDeployDockerImageOnRemote("10-oaknorth-prelive-imcalc-api",repoNameTportalimcalcApi,"oaknorth-imcalc-api/src/main/docker/Dockerfile",preLiveJenkinServerURL,imcalcapiServicePomFilePath,registryName,preLiveJenkinServerUser,preLiveJenkinServerUserToken)
+					sleep 20
+				}
+				else
+				{
+				    echo " Not deploying transaction portal imcalcapi "
+			    }
+				if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_imcalc_jobs'))
+				{
+					buildDeployDockerImageOnRemote("oaknorth-prelive-imcalc-jobs",repoNameTportalimcalcJobs,"oaknorth-imcalc-jobs/src/main/docker/Dockerfile",preLiveJenkinServerURL,imcalcjobsServicePomFilePath,registryName,preLiveJenkinServerUser,preLiveJenkinServerUserToken)
+					sleep 20
+				}
+				else
+				{
+				    echo " Not deploying transaction portal imcalcjobs "
+			    }
+			}
+
+		}
+
+	}
+
+	else
+	{
+		stage('Build and push docker images of transaction portal services')
+		{
+
+			script
+			{
+				if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_api'))
+				{
+					buildDeployDockerImageOnLocal("Deploy_Tportal_Api",repoNameTportalApi,"transactional-portal-api/src/main/docker/Dockerfile",apiServicePomFilePath,registryName)
+					stage('Triggering Monitor Job')
+					{
+						monitoringJobOnLocal("806_Monitor_Tportalapi")
+					}
+				}
+				else
+				{
+					echo "Not deploying transaction portal api"
+				}
+				if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_web'))
+				{
+					buildDeployDockerImageOnLocal("Deploy_Tportal_Web",repoNameTportalWeb,"transactional-portal-web/src/main/docker/Dockerfile",webServicePomFilePath,registryName)
+					stage('Triggering Monitor Job')
+					{
+						monitoringJobOnLocal("805_Monitor_Tportalweb")
+					}
+				}
+				else
+				{
+					echo "Not deploying transaction portal web"
+				}
+				if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_jobs'))
+				{
+					buildDeployDockerImageOnLocal("Deploy_Tportal_Jobs",repoNameTportalJobs,"transactional-portal-jobs/src/main/docker/Dockerfile",jobsServicePomFilePath,registryName)
+					stage('Triggering Monitor Job')
+					{
+						monitoringJobOnLocal("807_Monitor_Tportaljobs")
+					}
+				}
+				else
+				{
+					echo "Not deploying transaction portal jobs"
+				}
+				if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_backoffice'))
+				{
+					buildDeployDockerImageOnLocal("Deploy_Tportal_Backoffice",repoNameTportalBackoffice,"transactional-portal-backoffice/src/main/docker/Dockerfile",backofficeServicePomFilePath,registryName)
+					stage('Triggering Monitor Job')
+					{
+						monitoringJobOnLocal("808_Monitor_TportalBackOffice")
+					}
+				}
+				else
+				{
+					echo "Not deploying transaction portal backoffice"
+				}
+				if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_imcalc_api'))
+				{
+					buildDeployDockerImageOnLocal("Deploy_Tportal_Imcalc_api",repoNameTportalimcalcApi,"oaknorth-imcalc-api/src/main/docker/Dockerfile",imcalcapiServicePomFilePath,registryName)
+				}
+				else
+				{
+				    echo " Not deploying transaction portal imcalcapi "
+			    }
+				if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_imcalc_jobs'))
+				{
+					buildDeployDockerImageOnLocal("oaknorth-prelive-imcalc-jobs",repoNameTportalimcalcJobs,"oaknorth-imcalc-jobs/src/main/docker/Dockerfile",imcalcjobsServicePomFilePath,registryName)
+				}
+				else
+				{
+				    echo " Not deploying transaction portal imcalcjobs "
+			    }
+
+			}
+
+		}
+	}
+}
+
+		catch (e) {
+     
+        currentBuild.result = "FAILED"
+        throw e
+        }    
+         finally {
+		 
+		    stage('Sending Email')
+        {
+            notifyBuild(currentBuild.result,failedJobReciepients,passedJobReciepients)
+        }
+		}
+}
