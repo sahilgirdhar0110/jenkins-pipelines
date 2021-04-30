@@ -1,0 +1,404 @@
+import jenkins.model.*
+
+import java.time.format.DateTimeFormatter
+String repoName = 'ssh://git-codecommit.eu-west-1.amazonaws.com/v1/repos/transactional-portal'
+gitRepoCredentialsId = ''
+coreRepo = "ssh://git-codecommit.eu-west-1.amazonaws.com/v1/repos/oaknorth-core"
+registryName = '783026654359.dkr.ecr.eu-west-1.amazonaws.com'
+repoNameTportalApi = "$registryName/transactional-portal-api-nonprod"
+repoNameTportalWeb = "$registryName/transactional-portal-web-nonprod"
+repoNameTportalJobs = "$registryName/transactional-portal-jobs-nonprod"
+repoNameTportalBackoffice = "$registryName/transactional-portal-backoffice-nonprod"
+repoNameTportalimcalcJobs = "$registryName/imcalc-jobs-nonprod"
+repoNameTportalimcalcApi = "$registryName/imcalc-api-prod"
+repoNameTportalApiProd = "$registryName/transactional-portal-api-prod"
+repoNameTportalWebProd = "$registryName/transactional-portal-web-prod"
+repoNameTportalJobsProd = "$registryName/transactional-portal-jobs-prod"
+repoNameTportalBackofficeProd = "$registryName/transactional-portal-backoffice-prod"
+repoNameTportalimcalcJobsProd = "$registryName/imcalc-jobs-prod"
+repoNameTportalimcalcApiProd = "$registryName/imcalc-api-prod"
+rootPomFilePath= "pom.xml"
+apiServicePomFilePath= "transactional-portal-api/pom.xml"
+webServicePomFilePath= "transactional-portal-web/pom.xml"
+jobsServicePomFilePath= "transactional-portal-jobs/pom.xml"
+backofficeServicePomFilePath= "transactional-portal-backoffice/pom.xml"
+imcalcapiServicePomFilePath= "oaknorth-imcalc-api/pom.xml"
+imcalcjobsServicePomFilePath= "oaknorth-imcalc-jobs/pom.xml"
+apiServiceDockerFilePath="transactional-portal-api/src/main/docker/Dockerfile"
+webServiceDockerFilePath="transactional-portal-web/src/main/docker/Dockerfile"
+jobsServiceDockerFilePath="transactional-portal-jobs/src/main/docker/Dockerfile"
+backofficeDockerFilePath="transactional-portal-backoffice/src/main/docker/Dockerfile"
+imcalcapiDockerFilePath="oaknorth-imcalc-api/src/main/docker/Dockerfile"
+imcalcjobsDockerFilePath="oaknorth-imcalc-jobs/src/main/docker/Dockerfile"
+testJenkinServerURL= "http://10.100.16.202:8080"
+testJenkinServerUser= "autotriggertest"
+testJenkinServerUserToken= "3027721c20d07ff2a00cd579526a26c5"
+preLiveJenkinServerURL= "https://jenkins-prelive.oaknorth-it.com"
+preLiveJenkinServerUser= "autotriggerprelive"
+preLiveJenkinServerUserToken= "114b3f68fdf48c3015a3f00fb3b00da191"
+failedJobBuildReciepients= "8d51a775.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+passedJobBuildReciepients= "f06e5b08.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+failedJobReciepients= "b868971a.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+passedJobReciepients= "0f48caee.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+tPortalApiServiceName= "transactionalportalapi-service"
+tPortalJobsServiceName= "transactionalportaljobs-service"
+tPortalWebServiceName= "transactionalportalweb-service"
+tPortalBackOfficeServiceName="transactionalportalbackoffice-service"
+tPortalImcalcJobsServiceName= "imcalc-jobs-service"
+tPortalImcalcApiServiceName= "imcalc-api-service"
+tPortalApiKeyAnsible = "tpapi-version"
+tPortalJobsKeyAnsible = "tpjobs-version"
+tPortalWebKeyAnsible = "tpweb-version"
+tPortalBackOfficeKeyAnsible = "tpbackoffice-version"
+tPortalImcalcApiKeyAnsible = "imcalcapi-version"
+tPortalImcalcJobsKeyAnsible = "imcalcjobs-version"
+ansibleVarFile = "tag_Environment_DEV"
+envPemKey = "OaknorthDEV.pem"
+tPortalApiDeploymentScriptDev = "transactionalportal-api-deployment-dev.yml"
+tPortalJobsDeploymentScriptDev = "transactionalportal-jobs-deployment-dev.yml"
+tPortalWebDeploymentScriptDev = "transactionalportal-web-deployment-dev.yml"
+tPortalBackOfficeDeploymentScriptDev = "transactionalportal-backoffice-deployment-dev.yml"
+tPortalImcalcApiDeploymentScriptDev = "imcalc-api-deployment-dev.yml"
+tPortalImcalcJobsDeploymentScriptDev = "imcalc-jobs-deployment-dev.yml"
+middleOfficeClusterName= "MiddleOfficeClusterDEV"
+frontOfficeClusterName= "FrontOfficeClusterDEV "
+backOfficeClusterName= "BackOfficeClusterDEV"
+devHealthCheckUrl = "https://retail-backend-dev.oaknorth-it.com//public/api/healthCheck"
+devSnsTopicArn= "arn:aws:sns:eu-west-1:783026654359:monitoring_notification"
+failedJobBuildReciepients= "8d51a775.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+passedJobBuildReciepients= "f06e5b08.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+failedJobReciepients= "b868971a.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+passedJobReciepients= "0f48caee.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+
+
+node
+{
+def workspace3 = pwd()
+echo "workspace directory  ${workspace3}"
+def common3 = load "${workspace3}@script/jenkin-pipelines/common.groovy"
+ try {
+	if ("${params.MODE}" == "BuildOnly" || "${params.MODE}" == "Build&Deploy")
+	{
+    	if ("${params.DEPLOY_ENV}" == "Prod")
+		{
+			common3.buildApplication("${params.CORE_BRANCH_NAME}","${params.BRANCH_NAME}",repoName,rootPomFilePath,coreRepo)
+    		if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_api'))
+    		{
+        		def service_version = common3.versionTportal(apiServicePomFilePath)
+	    		common3.buildPushDockerImage(repoNameTportalApiProd,apiServiceDockerFilePath,service_version,registryName,"${params.DEPLOY_ENV}")
+    		} 
+    		if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_web'))
+    		{
+        		def service_version = common3.versionTportal(webServicePomFilePath)
+	    		common3.buildPushDockerImage(repoNameTportalWebProd,webServiceDockerFilePath,service_version,registryName,"${params.DEPLOY_ENV}")
+    		} 
+    		if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_jobs'))
+    		{
+        		def service_version = common3.versionTportal(jobsServicePomFilePath)
+	    		common3.buildPushDockerImage(repoNameTportalJobsProd,jobsServiceDockerFilePath,service_version,registryName,"${params.DEPLOY_ENV}")
+    		} 
+    		if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_backoffice'))
+    		{
+        		def service_version = common3.versionTportal(backofficeServicePomFilePath)
+	    		common3.buildPushDockerImage(repoNameTportalBackofficeProd,backofficeDockerFilePath,service_version,registryName,"${params.DEPLOY_ENV}")
+    		} 
+   		 	if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_imcalc_api'))
+    		{
+        		def service_version = common3.versionTportal(imcalcapiServicePomFilePath)
+	    		common3.buildPushDockerImage(repoNameTportalimcalcApiProd,imcalcapiDockerFilePath,service_version,registryName,"${params.DEPLOY_ENV}")
+    		} 
+    		if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_imcalc_jobs'))
+    		{
+        		def service_version = common3.versionTportal(imcalcjobsServicePomFilePath)
+	    		common3.buildPushDockerImage(repoNameTportalimcalcJobsProd,imcalcjobsDockerFilePath,service_version,registryName,"${params.DEPLOY_ENV}")
+    		} 
+		}
+		else 
+		{
+			common3.buildApplication("${params.CORE_BRANCH_NAME}","${params.BRANCH_NAME}",repoName,rootPomFilePath,coreRepo)
+    		if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_api'))
+    		{
+        		def service_version = common3.versionTportal(apiServicePomFilePath)
+	    		common3.buildPushDockerImage(repoNameTportalApi,apiServiceDockerFilePath,service_version,registryName,"${params.DEPLOY_ENV}")
+    		} 
+    		if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_web'))
+    		{
+        		def service_version = common3.versionTportal(webServicePomFilePath)
+	    		common3.buildPushDockerImage(repoNameTportalWeb,webServiceDockerFilePath,service_version,registryName,"${params.DEPLOY_ENV}")
+    		} 
+    		if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_jobs'))
+    		{
+        		def service_version = common3.versionTportal(jobsServicePomFilePath)
+	    		common3.buildPushDockerImage(repoNameTportalJobs,jobsServiceDockerFilePath,service_version,registryName,"${params.DEPLOY_ENV}")
+    		} 
+    		if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_backoffice'))
+    		{
+        		def service_version = common3.versionTportal(backofficeServicePomFilePath)
+	    		common3.buildPushDockerImage(repoNameTportalBackoffice,backofficeDockerFilePath,service_version,registryName,"${params.DEPLOY_ENV}")
+    		} 
+   		 	if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_imcalc_api'))
+    		{
+        		def service_version = common3.versionTportal(imcalcapiServicePomFilePath)
+	    		common3.buildPushDockerImage(repoNameTportalimcalcApi,imcalcapiDockerFilePath,service_version,registryName,"${params.DEPLOY_ENV}")
+    		} 
+    		if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_imcalc_jobs'))
+    		{
+        		def service_version = common3.versionTportal(imcalcjobsServicePomFilePath)
+	    		common3.buildPushDockerImage(repoNameTportalimcalcJobs,imcalcjobsDockerFilePath,service_version,registryName,"${params.DEPLOY_ENV}")
+    		} 
+
+		}
+	}
+  }
+ catch (e) {
+    currentBuild.result = "FAILED"
+    throw e
+        }    
+ finally 
+ {
+    stage('Sending Email')
+        {
+            common3.notifyBuild(currentBuild.result,failedJobBuildReciepients,passedJobBuildReciepients)
+        }
+}		
+}
+
+
+def deployOnDev()
+{
+def workspace1 = pwd()
+echo "workspace directory  ${workspace1}"
+def common1 = load "${workspace1}@script/jenkin-pipelines/common.groovy"
+try {
+		
+        if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_api'))
+        {
+            if  ("${params.MODE}" == "Build&Deploy")	
+		    {
+		        service_version = common1.versionTportal(apiServicePomFilePath)
+		    }
+		    else if ("${params.MODE}" == "DeployOnly")
+		    {
+        	    service_version = "${BRANCH_NAME}"
+		    }
+	        common1.triggerDeployOnDev(tPortalApiServiceName,service_version,tPortalApiKeyAnsible,ansibleVarFile,envPemKey,tPortalApiDeploymentScriptDev,"${params.DEPLOY_ENV}")
+           // common1.verifyDeployment(middleOfficeClusterName,tPortalApiServiceName,devHealthCheckUrl,devSnsTopicArn,"${params.DEPLOY_ENV}")
+        } 
+        if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_web'))
+        {
+            if  ("${params.MODE}" == "Build&Deploy")	
+		    {
+		        service_version = common1.versionTportal(webServicePomFilePath)
+		    }
+		    else if ("${params.MODE}" == "DeployOnly")
+		    {
+        	    service_version = "${BRANCH_NAME}"
+		    }
+	        common1.triggerDeployOnDev(tPortalWebServiceName,service_version,tPortalWebKeyAnsible,ansibleVarFile,envPemKey,tPortalWebDeploymentScriptDev,"${params.DEPLOY_ENV}")
+           // common1.verifyDeployment(frontOfficeClusterName,tPortalWebServiceName,devHealthCheckUrl,devSnsTopicArn,"${params.DEPLOY_ENV}")
+        }
+        if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_jobs'))
+        {
+            if  ("${params.MODE}" == "Build&Deploy")	
+		    {
+		        service_version = common1.versionTportal(jobsServicePomFilePath)
+		    }
+		    else if ("${params.MODE}" == "DeployOnly")
+		    {
+        	    service_version = "${BRANCH_NAME}"
+		    }
+	        common1.triggerDeployOnDev(tPortalJobsServiceName,service_version,tPortalJobsKeyAnsible,ansibleVarFile,envPemKey,tPortalJobsDeploymentScriptDev,"${params.DEPLOY_ENV}")
+           // common1.verifyDeployment(backOfficeClusterName,tPortalJobsServiceName,devHealthCheckUrl,devSnsTopicArn,"${params.DEPLOY_ENV}")
+        }
+        if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_backoffice'))
+        {
+            if  ("${params.MODE}" == "Build&Deploy")	
+		    {
+		        service_version = common1.versionTportal(backofficeServicePomFilePath)
+		    }
+		    else if ("${params.MODE}" == "DeployOnly")
+		    {
+        	    service_version = "${BRANCH_NAME}"
+		    }
+	        common1.triggerDeployOnDev(tPortalBackOfficeServiceName,service_version,tPortalBackOfficeKeyAnsible,ansibleVarFile,envPemKey,tPortalBackOfficeDeploymentScriptDev,"${params.DEPLOY_ENV}")
+            common1.verifyDeployment(frontOfficeClusterName,tPortalBackOfficeServiceName,devHealthCheckUrl,devSnsTopicArn,"${params.DEPLOY_ENV}")
+        }
+		if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_imcalc_api'))
+        {
+            if  ("${params.MODE}" == "Build&Deploy")	
+		    {
+		        service_version = common1.versionTportal(imcalcapiServicePomFilePath)
+		    }
+		    else if ("${params.MODE}" == "DeployOnly")
+		    {
+        	    service_version = "${BRANCH_NAME}"
+		    }
+	        common1.triggerDeployOnDev(tPortalImcalcApiServiceName,service_version,tPortalImcalcApiKeyAnsible,ansibleVarFile,envPemKey,tPortalImcalcApiDeploymentScriptDev,"${params.DEPLOY_ENV}")
+            common1.verifyDeployment(middleOfficeClusterName,tPortalImcalcApiServiceName,devHealthCheckUrl,devSnsTopicArn,"${params.DEPLOY_ENV}")
+        }
+        if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_imcalc_jobs'))
+        {
+            if  ("${params.MODE}" == "Build&Deploy")	
+		    {
+		        service_version = common1.versionTportal(imcalcjobsServicePomFilePath)
+		    }
+		    else if ("${params.MODE}" == "DeployOnly")
+		    {
+        	    service_version = "${BRANCH_NAME}"
+		    }
+	        common1.triggerDeployOnDev(tPortalImcalcJobsServiceName,service_version,tPortalImcalcJobsKeyAnsible,ansibleVarFile,envPemKey,tPortalImcalcJobsDeploymentScriptDev,"${params.DEPLOY_ENV}")
+            common1.verifyDeployment(backOfficeClusterName,tPortalImcalcJobsServiceName,devHealthCheckUrl,devSnsTopicArn,"${params.DEPLOY_ENV}")
+        }
+}
+ catch (e) {
+    currentBuild.result = "FAILED"
+    throw e
+        }    
+ finally 
+ {
+    stage('Sending Email')
+        {
+            common1.notifyBuild(currentBuild.result,failedJobBuildReciepients,passedJobBuildReciepients)
+        }
+ }
+}
+
+
+def deployOnTestPrelive(jenkin_server_url,jenkin_server_user_token,jenkin_server_user)
+{
+def workspace2 = pwd()
+echo "workspace directory  ${workspace2}"
+def common2 = load "${workspace2}@script/jenkin-pipelines/common.groovy"
+try {
+		
+		if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_api'))
+        {
+            if  ("${params.MODE}" == "Build&Deploy")	
+		    {
+		        service_version = common2.versionTportal(apiServicePomFilePath)
+		    }
+		    else if ("${params.MODE}" == "DeployOnly")
+		    {
+        	    service_version = "${BRANCH_NAME}"
+		    }
+	        common2.triggerDeployOnTestAndPrelive("Deploy_Tportal_Api",service_version,jenkin_server_url,jenkin_server_user_token,jenkin_server_user)
+            common2.verifyDeploymentOnTestAndPrelive("806_Monitor_Tportalapi",testJenkinServerURL,testJenkinServerUserToken,testJenkinServerUser)
+        } 
+        if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_web'))
+        {
+            if  ("${params.MODE}" == "Build&Deploy")	
+		    {
+		        service_version = common2.versionTportal(webServicePomFilePath)
+		    }
+		    else if ("${params.MODE}" == "DeployOnly")
+		    {
+        	    service_version = "${BRANCH_NAME}"
+		    }
+	        common2.triggerDeployOnTestAndPrelive("Deploy_Tportal_Web",service_version,jenkin_server_url,jenkin_server_user_token,jenkin_server_user)
+            common2.verifyDeploymentOnTestAndPrelive("805_Monitor_Tportalweb",testJenkinServerURL,testJenkinServerUserToken,testJenkinServerUser)
+        }
+        if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_jobs'))
+        {
+            if  ("${params.MODE}" == "Build&Deploy")	
+		    {
+		        service_version = common2.versionTportal(jobsServicePomFilePath)
+		    }
+		    else if ("${params.MODE}" == "DeployOnly")
+		    {
+        	    service_version = "${BRANCH_NAME}"
+		    }
+	        common2.triggerDeployOnTestAndPrelive("Deploy_Tportal_Jobs",service_version,jenkin_server_url,jenkin_server_user_token,jenkin_server_user)
+            common2.verifyDeploymentOnTestAndPrelive("807_Monitor_Tportaljobs",testJenkinServerURL,testJenkinServerUserToken,testJenkinServerUser)
+        }
+        if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_backoffice'))
+        {
+            if  ("${params.MODE}" == "Build&Deploy")	
+		    {
+		        service_version = common2.versionTportal(backofficeServicePomFilePath)
+		    }
+		    else if ("${params.MODE}" == "DeployOnly")
+		    {
+        	    service_version = "${BRANCH_NAME}"
+		    }
+	        common2.triggerDeployOnTestAndPrelive("Deploy_Tportal_Backoffice",service_version,jenkin_server_url,jenkin_server_user_token,jenkin_server_user)
+            common2.verifyDeploymentOnTestAndPrelive("808_Monitor_TportalBackOffice",testJenkinServerURL,testJenkinServerUserToken,testJenkinServerUser)
+        }
+		if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_imcalc_api'))
+        {
+            if  ("${params.MODE}" == "Build&Deploy")	
+		    {
+		        service_version = common2.versionTportal(imcalcapiServicePomFilePath)
+		    }
+		    else if ("${params.MODE}" == "DeployOnly")
+		    {
+        	    service_version = "${BRANCH_NAME}"
+		    }
+	        common2.triggerDeployOnTestAndPrelive("Deploy_Tportal_Imcalc_api",service_version,jenkin_server_url,jenkin_server_user_token,jenkin_server_user)
+            //common2.verifyDeploymentOnTestAndPrelive("808_Monitor_TportalBackOffice",testJenkinServerURL,testJenkinServerUserToken,testJenkinServerUser)
+        }
+        if ("${TRANSACTION_PORTAL_SERVICES}".contains('transaction_portal_imcalc_jobs'))
+        {
+            if  ("${params.MODE}" == "Build&Deploy")	
+		    {
+		        service_version = common2.versionTportal(imcalcjobsServicePomFilePath)
+		    }
+		    else if ("${params.MODE}" == "DeployOnly")
+		    {
+        	    service_version = "${BRANCH_NAME}"
+		    }
+	        common2.triggerDeployOnTestAndPrelive("Deploy_Tportal_Imcalc_jobs",service_version,jenkin_server_url,jenkin_server_user_token,jenkin_server_user)
+            //common2.verifyDeploymentOnTestAndPrelive("808_Monitor_TportalBackOffice",testJenkinServerURL,testJenkinServerUserToken,testJenkinServerUser)
+        }
+}
+ catch (e) {
+    currentBuild.result = "FAILED"
+    throw e
+        }    
+ finally 
+ {
+    stage('Sending Email')
+        {
+            common2.notifyBuild(currentBuild.result,failedJobBuildReciepients,passedJobBuildReciepients)
+        }
+ }
+}
+
+	
+
+node
+{	
+if ("${params.MODE}" == "DeployOnly" || "${params.MODE}" == "Build&Deploy")	
+{
+	if ("${params.DEPLOY_ENV}" == "Dev")
+    {
+	
+      stage("Going to Deploy on ${params.ENVIRONMENT_NAME}")
+		{
+
+		deployOnDev()
+		
+		}
+	}		    
+	
+
+	else if ("${params.DEPLOY_ENV}" == "Test")
+	{
+		stage("Going to Deploy on ${params.ENVIRONMENT_NAME} ")
+		{
+		
+		deployOnTestPrelive(testJenkinServerURL,testJenkinServerUserToken,testJenkinServerUser)
+		
+		}
+	
+	}
+	
+	else if ("${params.DEPLOY_ENV}" == "Prelive")
+	{
+		stage("Going to Deploy on ${params.ENVIRONMENT_NAME} ")
+		{
+		deployOnTestPrelive(preLiveJenkinServerURL,preLiveJenkinServerUserToken,preLiveJenkinServerUser)
+		}
+	
+	}
+}
+}
