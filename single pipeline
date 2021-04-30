@@ -1,0 +1,169 @@
+import jenkins.model.*
+repoName = 'ssh://git-codecommit.eu-west-1.amazonaws.com/v1/repos/oaknorth-audit-service'
+coreRepo = "ssh://git-codecommit.eu-west-1.amazonaws.com/v1/repos/oaknorth-core"
+registryName = '783026654359.dkr.ecr.eu-west-1.amazonaws.com'
+ecrRepoName = "$registryName/oaknorth-audit-service-nonprod"
+ecrRepoNameProd = "$registryName/oaknorth-audit-service-prod"
+rootPomFilePath= "pom.xml"
+dockerFilePath="src/main/docker/Dockerfile"
+testJenkinServerURL= "http://10.100.16.202:8080"
+testJenkinServerUser= "autotriggertest"
+testJenkinServerUserToken= "3027721c20d07ff2a00cd579526a26c5"
+preLiveJenkinServerURL= "https://jenkins-prelive.oaknorth-it.com"
+preLiveJenkinServerUser= "autotriggerprelive"
+preLiveJenkinServerUserToken= "114b3f68fdf48c3015a3f00fb3b00da191"
+failedJobBuildReciepients= "8d51a775.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+passedJobBuildReciepients= "f06e5b08.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+failedJobReciepients= "b868971a.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+passedJobReciepients= "0f48caee.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+serviceName= "oaknorth-audit-service"
+serviceKeyAnsible = "audit_service_version"
+ansibleVarFile = "tag_Environment_DEV"
+envPemKey = "OaknorthDEV.pem"
+serviceDeploymentScript = "audit-deployment-dev.yml"
+clusterName= "MiddleOfficeClusterDEV"
+devHealthCheckUrl = "https://retail-backend-dev.oaknorth-it.com//public/api/healthCheck"
+devSnsTopicArn= "arn:aws:sns:eu-west-1:783026654359:monitoring_notification"
+testPreliveDeployJobName= "Deploy_Audit_Service"
+testPreliveMonitorJobName = "Account_Status_Job"
+
+
+node
+{
+if ("${params.MODE}" == "BuildOnly" || "${params.MODE}" == "Build&Deploy")
+{
+def workspace3 = pwd()
+echo "workspace directory  ${workspace3}"
+def common3 = load "${workspace3}@script/jenkin-pipelines/common.groovy"
+try 
+{
+    if ("${params.DEPLOY_ENV}" == "Prod")
+	{
+    common3.buildApplication("${params.CORE_BRANCH_NAME}","${params.BRANCH_NAME}",repoName,rootPomFilePath,coreRepo)
+	def service_version = common3.readVersion(rootPomFilePath)
+	common3.buildPushDockerImage(ecrRepoNameProd,dockerFilePath,service_version,registryName,"${params.DEPLOY_ENV}")
+	}
+	else
+	{
+    common3.buildApplication("${params.CORE_BRANCH_NAME}","${params.BRANCH_NAME}",repoName,rootPomFilePath,coreRepo)
+	def service_version = common3.readVersion(rootPomFilePath)
+	common3.buildPushDockerImage(ecrRepoName,dockerFilePath,service_version,registryName,"${params.DEPLOY_ENV}")
+	}
+}
+catch (e) 
+{
+    currentBuild.result = "FAILED"
+    throw e
+}    
+finally 
+{
+    stage('Sending Email')
+        {
+            common3.notifyBuild(currentBuild.result,failedJobBuildReciepients,passedJobBuildReciepients)
+        }
+}
+}
+}
+
+
+def deployOnDev()
+{
+def workspace1 = pwd()
+echo "workspace directory  ${workspace1}"
+def common1 = load "${workspace1}@script/jenkin-pipelines/common.groovy"
+
+try {
+		if  ("${params.MODE}" == "Build&Deploy")	
+		    {
+		        service_version = common1.readVersion(rootPomFilePath)
+		    }
+		else if ("${params.MODE}" == "DeployOnly")
+		    {
+        	    service_version = "${BRANCH_NAME}"
+		    }
+		common1.triggerDeployOnDev(serviceName,service_version,serviceKeyAnsible,ansibleVarFile,envPemKey,serviceDeploymentScript,"${params.DEPLOY_ENV}")
+		//common1.verifyDeploymentOnDev(clusterName,serviceName,devHealthCheckUrl,devSnsTopicArn,"${params.DEPLOY_ENV}")
+}
+catch (e) {
+    currentBuild.result = "FAILED"
+    throw e
+        }    
+ finally 
+ {
+    stage('Sending Email')
+        {
+            common1.notifyBuild(currentBuild.result,failedJobBuildReciepients,passedJobBuildReciepients)
+        }
+ }
+
+}	
+
+def deployOnTestPrelive(jenkin_server_url,jenkin_server_user_token,jenkin_server_user)
+{
+def workspace2 = pwd()
+echo "workspace directory  ${workspace2}"
+def common2 = load "${workspace2}@script/jenkin-pipelines/common.groovy"
+try {
+		
+		if  ("${params.MODE}" == "Build&Deploy")	
+		    {
+		        service_version = common2.readVersion(rootPomFilePath)
+		    }
+		else if ("${params.MODE}" == "DeployOnly")
+		    {
+        	    service_version = "${BRANCH_NAME}"
+		    }
+		common2.triggerDeployOnTestAndPrelive(testPreliveDeployJobName,service_version,jenkin_server_url,jenkin_server_user_token,jenkin_server_user)
+        //common2.verifyDeploymentOnTestAndPrelive(testPreliveMonitorJobName,jenkin_server_url,jenkin_server_user_token,jenkin_server_user)
+}
+ catch (e) {
+    currentBuild.result = "FAILED"
+    throw e
+        }    
+ finally 
+ {
+    stage('Sending Email')
+        {
+            common2.notifyBuild(currentBuild.result,failedJobBuildReciepients,passedJobBuildReciepients)
+        }
+ }
+}
+
+
+	
+node
+{
+if ("${params.MODE}" == "DeployOnly" || "${params.MODE}" == "Build&Deploy")	
+{	
+	if ("${params.DEPLOY_ENV}" == "Dev")
+    {
+	    stage("Going to Deploy on ${params.DEPLOY_ENV}")
+		{
+
+		deployOnDev()
+		
+		}
+			    
+	}
+
+	else if ("${params.DEPLOY_ENV}" == "Test")
+	{
+		stage("Going to Deploy on ${params.DEPLOY_ENV} ")
+		{
+		
+		deployOnTestPrelive(testJenkinServerURL,testJenkinServerUserToken,testJenkinServerUser)
+		
+		}
+	
+	}
+	
+	else if ("${params.DEPLOY_ENV}" == "Prelive")
+	{
+		stage("Going to Deploy on ${params.DEPLOY_ENV} ")
+		{
+		 deployOnTestPrelive(preLiveJenkinServerURL,preLiveJenkinServerUserToken,preLiveJenkinServerUser)
+		}
+	
+	}
+}
+}
