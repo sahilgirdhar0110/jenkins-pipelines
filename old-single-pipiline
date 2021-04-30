@@ -1,0 +1,253 @@
+import jenkins.model.*
+
+final String repoName = 'ssh://git-codecommit.eu-west-1.amazonaws.com/v1/repos/oaknorth-notification-service'
+final String registryName = '783026654359.dkr.ecr.eu-west-1.amazonaws.com'
+final String ecrRepoName = "$registryName/notification-service-nonprod"
+final String rootPomFilePath= "pom.xml"
+final String testJenkinServerURL= "http://10.100.16.202:8080"
+final String testJenkinServerUser= "autotriggertest"
+final String testJenkinServerUserToken= "3027721c20d07ff2a00cd579526a26c5"
+final String preLiveJenkinServerURL= "https://jenkins-prelive.oaknorth-it.com"
+final String preLiveJenkinServerUser= "admin"
+final String preLiveJenkinServerUserToken= "1191108f1a2b88a6be9f0b6d3c686fb7e7"
+final String failedJobBuildReciepients= "8d51a775.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+final String passedJobBuildReciepients= "f06e5b08.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+final String failedJobReciepients= "b868971a.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+final String passedJobReciepients= "0f48caee.Oaknorth818.onmicrosoft.com@emea.teams.ms"
+
+def version(pomPath)
+{
+    
+	//def matcher = readFile("${pomPath}") =~ '<version>(.+?)</version>'
+    //matcher ? matcher[0][1] : null
+    //return matcher[0][1]
+
+    pom = readMavenPom file: 'pom.xml'
+    
+	return  pom.version
+}
+
+def tokenRefresh()
+{
+	
+	sh 'rm  ~/.dockercfg || true'
+    sh 'rm ~/.docker/config.json || true'
+	sh 'eval $(aws ecr get-login --no-include-email --region eu-west-1)'
+}
+
+def cloneBuildCore(){
+    git branch: "${CORE_BRANCH_NAME}",
+    url: 'ssh://git-codecommit.eu-west-1.amazonaws.com/v1/repos/oaknorth-core'
+    sh 'mvn -f pom.xml clean install -DskipTests -Dmaven.wagon.http.ssl.insecure=true -Dmaven.wagon.http.ssl.allowall=true -Dmaven.wagon.http.ssl.ignore.validity.dates=true -Dmaven.wagon.http.ssl.ignore.validity.dates=true'
+}
+
+def buildPushDockerImage(ecr_repo_name,docker_file_path,service_pom_file_path,registry_name)
+{
+	
+	notification_service_version = version(service_pom_file_path)
+	tokenRefresh()
+	docker.withRegistry("https://${registry_name}" )
+	{
+		docker.build(ecr_repo_name +":${notification_service_version}","-f ${docker_file_path} .").push("$notification_service_version")
+	}
+}
+
+def triggerDeployOnLocal(deploy_job_name,service_pom_file_path)
+{
+	
+	stage ("Triggering ${deploy_job_name} Job on ${params.DEPLOY_ENV}")
+	{
+		notification_service_version = version("${service_pom_file_path}")
+		build job: "${deploy_job_name}",
+			parameters: [
+                                string(name: "notification_service_version", value: "${notification_service_version}")
+                        ]
+	}
+}
+
+
+
+def triggerDeployOnRemote(deploy_job_name,jenkin_server_url,jenkin_server_user_token,jenkin_server_user,service_pom_file_path)
+{
+	
+	stage ("Triggering ${deploy_job_name} Job on ${params.DEPLOY_ENV}")
+	{
+		notification_service_version = version("${service_pom_file_path}")
+
+		def handle = triggerRemoteJob job: "${jenkin_server_url}/job/${deploy_job_name}", parameters: "notification_service_version=${notification_service_version}",auth: TokenAuth(apiToken: "${jenkin_server_user_token}", userName: "${jenkin_server_user}")
+
+	}
+}
+
+def triggerDeployOnPreLive(deploy_job_name,jenkin_server_url,jenkin_server_user_token,jenkin_server_user,service_pom_file_path)
+{
+	
+	stage ("Triggering ${deploy_job_name} Job on ${params.DEPLOY_ENV}")
+	{
+		notification_service_version = version("${service_pom_file_path}")
+
+		def handle = triggerRemoteJob job: "${jenkin_server_url}/job/${deploy_job_name}", parameters: "notification_service_version=${notification_service_version}",blockBuildUntilComplete: false,auth: TokenAuth(apiToken: "${jenkin_server_user_token}", userName: "${jenkin_server_user}")
+
+	}
+}
+
+def monitoringJobOnLocal(job_name)
+{
+  println "$job_name"
+  build job: "${job_name}"
+}
+
+def monitoringJobOnRemote(job_name,jenkin_server_url,jenkin_server_user_token,jenkin_server_user)
+{
+ 
+  def handle = triggerRemoteJob job: "${jenkin_server_url}/job/${job_name}",blockBuildUntilComplete: false,auth: TokenAuth(apiToken: "${jenkin_server_user_token}", userName: "${jenkin_server_user}")
+}
+
+
+def notifyBuild(String buildStatus = 'STARTED',failed_job_reciepients,passed_job_reciepients) {
+   
+   buildStatus =  buildStatus ?: 'SUCCESSFUL'
+   
+  def colorName = 'RED'
+   def colorCode = '#FF0000'
+   def subject = "${buildStatus}: Pipeline '${env.JOB_NAME} [${env.BUILD_NUMBER}]' for ${params.DEPLOY_ENV} environment"
+   def details = """<p> Check attached output for more details</p>"""
+    
+       
+   if (buildStatus == 'STARTED') {
+       echo "Build started"   
+   } 
+   
+   else if (buildStatus == 'SUCCESSFUL') {
+   
+	 emailext (
+     attachLog: true,
+     subject: subject,
+     body: details,
+     //recipientProviders: [[$class: 'DevelopersRecipientProvider']],
+     to: "${passed_job_reciepients}"
+     )
+   } 
+   
+   else {
+     emailext (
+     attachLog: true,
+     subject: subject,
+     body: details,
+     //recipientProviders: [[$class: 'DevelopersRecipientProvider']],
+	 to: "${failed_job_reciepients}"
+     )
+   }
+ 
+   }
+
+node{
+  try{
+ 
+ 
+  if ("${params.CORE_BRANCH_NAME}".isEmpty() != true){
+
+        stage('Git clone and Build Core'){
+          echo "Clone and Build from Core branch started"	  
+	      cloneBuildCore()
+         
+			 }
+		 
+
+}
+
+   else{
+		   echo " Core branch name not provided. Hence not building Core"
+		 }	
+   
+	
+	stage('Git Clone')
+		{
+			git branch: "${BRANCH_NAME}",
+			url: "$repoName"
+		}
+		stage('Building Notification')
+		{
+			
+		 	sh 'mvn -f ' +rootPomFilePath +' clean install -Dmaven.wagon.http.ssl.insecure=true -Dmaven.wagon.http.ssl.allowall=true  -DskipTests'
+		}
+		}
+
+		catch (e) {
+     
+        currentBuild.result = "FAILED"
+        throw e
+        }    
+         finally {
+		 
+		    stage('Sending Email')
+        {
+            notifyBuild(currentBuild.result,failedJobBuildReciepients,passedJobBuildReciepients)
+        }
+		}
+}		
+
+
+node
+{
+	try {
+
+		if ("${params.DEPLOY_ENV}" == "Test")
+		{
+			
+			stage('Push docker image to ECR Repository')
+			{
+				script
+				{
+						buildPushDockerImage(ecrRepoName,"src/main/docker/Dockerfile",rootPomFilePath,registryName)
+						triggerDeployOnRemote("Deploy_Notification_Service",testJenkinServerURL,testJenkinServerUserToken,testJenkinServerUser,rootPomFilePath)
+
+				}
+			}
+
+		}
+		else if ("${params.DEPLOY_ENV}" == "Dev")
+		{
+			
+			stage('Push docker image to ECR Repository')
+			{
+				script
+				{
+					buildPushDockerImage(ecrRepoName,"src/main/docker/Dockerfile",rootPomFilePath,registryName)
+					triggerDeployOnLocal("406_Deploy_Notification",rootPomFilePath)
+				}
+			}
+
+		}
+		else if ("${params.DEPLOY_ENV}" == "PreLive")
+		{
+			
+			stage('Push docker image to ECR Repository')
+			{
+				script
+				{
+						buildPushDockerImage(ecrRepoName,"src/main/docker/Dockerfile",rootPomFilePath,registryName)
+						triggerDeployOnPreLive("Deploy_Notification",preLiveJenkinServerURL,preLiveJenkinServerUserToken,preLiveJenkinServerUser,rootPomFilePath)						
+						sleep 20
+
+				}
+			}
+
+		}
+		
+		}
+		
+		catch (e) {
+     
+        currentBuild.result = "FAILED"
+        throw e
+        }    
+         finally {
+		 
+		    stage('Sending Email')
+        {
+            notifyBuild(currentBuild.result,failedJobReciepients,passedJobReciepients)
+        }
+		}
+	}
+	
